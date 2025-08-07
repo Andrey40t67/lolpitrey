@@ -1,266 +1,245 @@
 <!DOCTYPE html>
-<html lang="ru">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Eye Tracking - Отслеживание глаз</title>
+    <title>Eye Tracking Dot</title>
     <style>
         * {
             margin: 0;
             padding: 0;
             box-sizing: border-box;
         }
-
+        
         body {
-            background-color: white;
-            overflow: hidden;
-            font-family: Arial, sans-serif;
-        }
-
-        #container {
-            position: relative;
             width: 100vw;
             height: 100vh;
             background-color: white;
+            overflow: hidden;
+            position: relative;
         }
-
-        #eyeDot {
-            position: absolute;
-            width: 20px;
-            height: 20px;
+        
+        #dot {
+            width: 60px;
+            height: 60px;
             background-color: black;
             border-radius: 50%;
+            position: absolute;
+            top: 50%;
+            left: 50%;
             transform: translate(-50%, -50%);
             transition: all 0.1s ease-out;
-            z-index: 1000;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.3);
         }
-
-        #calibration {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background-color: rgba(0, 0, 0, 0.8);
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            z-index: 9999;
-        }
-
-        #calibrationText {
-            color: white;
-            font-size: 24px;
-            margin-bottom: 20px;
-            text-align: center;
-        }
-
-        .calibration-point {
+        
+        #videoElement {
             position: absolute;
-            width: 20px;
-            height: 20px;
-            background-color: red;
-            border-radius: 50%;
-            cursor: pointer;
+            top: 10px;
+            right: 10px;
+            width: 200px;
+            height: 150px;
+            opacity: 0.3;
+            border-radius: 10px;
+            display: none;
+        }
+        
+        #status {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            font-family: Arial, sans-serif;
+            font-size: 14px;
+            color: #333;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 10px;
+            border-radius: 5px;
+        }
+        
+        #calibration {
+            position: absolute;
+            top: 50%;
+            left: 50%;
             transform: translate(-50%, -50%);
-            animation: pulse 1s infinite;
+            text-align: center;
+            font-family: Arial, sans-serif;
+            background: rgba(255, 255, 255, 0.95);
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.1);
         }
-
-        @keyframes pulse {
-            0% { transform: translate(-50%, -50%) scale(1); }
-            50% { transform: translate(-50%, -50%) scale(1.2); }
-            100% { transform: translate(-50%, -50%) scale(1); }
-        }
-
-        #startButton {
-            padding: 15px 30px;
-            font-size: 18px;
-            background-color: #007bff;
+        
+        button {
+            margin-top: 20px;
+            padding: 10px 20px;
+            font-size: 16px;
+            background: black;
             color: white;
             border: none;
             border-radius: 5px;
             cursor: pointer;
-            margin-top: 20px;
         }
-
-        #startButton:hover {
-            background-color: #0056b3;
-        }
-
-        #webgazerVideoContainer {
-            position: fixed;
-            bottom: 10px;
-            right: 10px;
-            width: 200px;
-            height: 150px;
-            z-index: 1001;
-            border: 2px solid #ccc;
-            border-radius: 8px;
-            overflow: hidden;
-        }
-
-        #webgazerVideoFeed {
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-        }
-
-        .hidden {
-            display: none;
+        
+        button:hover {
+            background: #333;
         }
     </style>
 </head>
 <body>
-    <!-- Контейнер для отслеживания -->
-    <div id="container">
-        <div id="eyeDot"></div>
-    </div>
-
-    <!-- Экран калибровки -->
+    <div id="dot"></div>
+    <video id="videoElement" autoplay></video>
+    <div id="status">Инициализация...</div>
     <div id="calibration">
-        <div id="calibrationText">Нажмите кнопку для начала калибровки системы отслеживания глаз</div>
-        <button id="startButton">Начать калибровку</button>
+        <h2>Отслеживание взгляда</h2>
+        <p>Нажмите кнопку для доступа к камере</p>
+        <button onclick="startTracking()">Начать отслеживание</button>
     </div>
 
-    <!-- Контейнер для видео с камеры -->
-    <div id="webgazerVideoContainer" class="hidden">
-        <video id="webgazerVideoFeed" autoplay muted></video>
-    </div>
-
-    <!-- WebGazer.js библиотека -->
+    <!-- WebGazer.js library for eye tracking -->
     <script src="https://webgazer.cs.brown.edu/webgazer.js"></script>
     
     <script>
         let isCalibrated = false;
-        let calibrationPoints = [];
-        let currentCalibrationPoint = 0;
-        let eyeDot = document.getElementById('eyeDot');
-        let calibrationScreen = document.getElementById('calibration');
-        let calibrationText = document.getElementById('calibrationText');
-        let startButton = document.getElementById('startButton');
-        let videoContainer = document.getElementById('webgazerVideoContainer');
-
-        // Калибровочные точки (углы и центр экрана)
-        const calibrationPositions = [
-            { x: 0.1, y: 0.1 },   // Верхний левый
-            { x: 0.9, y: 0.1 },   // Верхний правый
-            { x: 0.5, y: 0.5 },   // Центр
-            { x: 0.1, y: 0.9 },   // Нижний левый
-            { x: 0.9, y: 0.9 }    // Нижний правый
-        ];
-
-        // Запуск калибровки
-        startButton.addEventListener('click', function() {
-            startEyeTracking();
-        });
-
-        function startEyeTracking() {
-            // Показываем видео с камеры
-            videoContainer.classList.remove('hidden');
+        const dot = document.getElementById('dot');
+        const status = document.getElementById('status');
+        const calibrationDiv = document.getElementById('calibration');
+        const video = document.getElementById('videoElement');
+        
+        // Smoothing parameters
+        let smoothX = window.innerWidth / 2;
+        let smoothY = window.innerHeight / 2;
+        const smoothingFactor = 0.2; // Lower = smoother movement
+        
+        async function startTracking() {
+            calibrationDiv.innerHTML = '<h2>Настройка...</h2><p>Смотрите прямо в камеру</p>';
             
-            // Инициализируем WebGazer
-            webgazer.setRegression('ridge')
-                .setTracker('TFFacemesh')
-                .begin()
-                .then(() => {
-                    console.log('WebGazer инициализирован');
-                    startCalibration();
-                })
-                .catch(err => {
-                    console.error('Ошибка инициализации WebGazer:', err);
-                    alert('Не удалось получить доступ к камере. Убедитесь, что вы разрешили доступ.');
+            try {
+                // Request camera permission
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { 
+                        width: 640,
+                        height: 480,
+                        facingMode: 'user'
+                    } 
                 });
-
-            // Скрываем точку предсказания WebGazer (красную точку)
-            webgazer.showPredictionPoints(false);
-        }
-
-        function startCalibration() {
-            calibrationText.textContent = `Кликните по красной точке для калибровки (${currentCalibrationPoint + 1}/${calibrationPositions.length})`;
-            startButton.style.display = 'none';
-            
-            showCalibrationPoint();
-        }
-
-        function showCalibrationPoint() {
-            if (currentCalibrationPoint >= calibrationPositions.length) {
-                finishCalibration();
-                return;
+                
+                video.srcObject = stream;
+                
+                // Initialize WebGazer
+                webgazer.setGazeListener((data, elapsedTime) => {
+                    if (data == null) {
+                        return;
+                    }
+                    
+                    // Get prediction coordinates
+                    let x = data.x;
+                    let y = data.y;
+                    
+                    // Apply smoothing
+                    smoothX = smoothX + (x - smoothX) * smoothingFactor;
+                    smoothY = smoothY + (y - smoothY) * smoothingFactor;
+                    
+                    // Constrain to window bounds
+                    smoothX = Math.max(30, Math.min(window.innerWidth - 30, smoothX));
+                    smoothY = Math.max(30, Math.min(window.innerHeight - 30, smoothY));
+                    
+                    // Move the dot
+                    dot.style.left = smoothX + 'px';
+                    dot.style.top = smoothY + 'px';
+                    dot.style.transform = 'translate(-50%, -50%)';
+                    
+                    if (!isCalibrated) {
+                        isCalibrated = true;
+                        calibrationDiv.style.display = 'none';
+                        status.textContent = 'Отслеживание активно';
+                    }
+                }).begin();
+                
+                // Configure WebGazer
+                webgazer.showVideoPreview(false);
+                webgazer.showPredictionPoints(false);
+                webgazer.showFaceOverlay(false);
+                webgazer.showFaceFeedbackBox(false);
+                
+                // Set regression model
+                webgazer.setRegression('ridge');
+                
+                status.textContent = 'Калибровка... Смотрите на разные точки экрана';
+                
+                // Auto-calibration by clicking around the screen
+                setTimeout(() => {
+                    autoCalibrate();
+                }, 2000);
+                
+            } catch (err) {
+                console.error('Error accessing camera:', err);
+                status.textContent = 'Ошибка доступа к камере';
+                calibrationDiv.innerHTML = `
+                    <h2>Ошибка</h2>
+                    <p>Не удалось получить доступ к камере</p>
+                    <p style="font-size: 12px; color: #666; margin-top: 10px">${err.message}</p>
+                    <button onclick="startTracking()">Попробовать снова</button>
+                `;
             }
-
-            const point = calibrationPositions[currentCalibrationPoint];
-            const pointElement = document.createElement('div');
-            pointElement.className = 'calibration-point';
-            pointElement.style.left = (point.x * window.innerWidth) + 'px';
-            pointElement.style.top = (point.y * window.innerHeight) + 'px';
+        }
+        
+        function autoCalibrate() {
+            // Simulate clicks on different parts of the screen for calibration
+            const positions = [
+                {x: window.innerWidth * 0.1, y: window.innerHeight * 0.1},
+                {x: window.innerWidth * 0.9, y: window.innerHeight * 0.1},
+                {x: window.innerWidth * 0.5, y: window.innerHeight * 0.5},
+                {x: window.innerWidth * 0.1, y: window.innerHeight * 0.9},
+                {x: window.innerWidth * 0.9, y: window.innerHeight * 0.9},
+            ];
             
-            pointElement.addEventListener('click', function() {
-                // Записываем позицию клика для калибровки
-                const rect = pointElement.getBoundingClientRect();
-                const centerX = rect.left + rect.width / 2;
-                const centerY = rect.top + rect.height / 2;
-                
-                webgazer.recordScreenPosition(centerX, centerY, 'click');
-                
-                pointElement.remove();
-                currentCalibrationPoint++;
-                
-                if (currentCalibrationPoint < calibrationPositions.length) {
-                    calibrationText.textContent = `Кликните по красной точке для калибровки (${currentCalibrationPoint + 1}/${calibrationPositions.length})`;
-                    setTimeout(showCalibrationPoint, 500);
-                } else {
-                    finishCalibration();
-                }
+            positions.forEach((pos, index) => {
+                setTimeout(() => {
+                    // Create a temporary calibration point
+                    const point = document.createElement('div');
+                    point.style.position = 'absolute';
+                    point.style.width = '20px';
+                    point.style.height = '20px';
+                    point.style.backgroundColor = 'red';
+                    point.style.borderRadius = '50%';
+                    point.style.left = pos.x + 'px';
+                    point.style.top = pos.y + 'px';
+                    point.style.transform = 'translate(-50%, -50%)';
+                    point.style.zIndex = '1000';
+                    document.body.appendChild(point);
+                    
+                    // Simulate click for calibration
+                    const clickEvent = new MouseEvent('click', {
+                        view: window,
+                        bubbles: true,
+                        cancelable: true,
+                        clientX: pos.x,
+                        clientY: pos.y
+                    });
+                    document.elementFromPoint(pos.x, pos.y)?.dispatchEvent(clickEvent);
+                    
+                    // Remove point after short delay
+                    setTimeout(() => {
+                        point.remove();
+                    }, 500);
+                }, index * 1000);
             });
             
-            calibrationScreen.appendChild(pointElement);
-        }
-
-        function finishCalibration() {
-            calibrationText.textContent = 'Калибровка завершена! Система готова к работе.';
-            
+            // Hide calibration message after calibration
             setTimeout(() => {
-                calibrationScreen.style.display = 'none';
-                isCalibrated = true;
-                startGazeTracking();
-            }, 2000);
+                calibrationDiv.style.display = 'none';
+                status.textContent = 'Отслеживание активно';
+            }, 6000);
         }
-
-        function startGazeTracking() {
-            webgazer.setGazeListener(function(data, elapsedTime) {
-                if (data == null || !isCalibrated) {
-                    return;
-                }
-                
-                // Получаем координаты взгляда
-                let gazeX = data.x;
-                let gazeY = data.y;
-                
-                // Ограничиваем координаты размерами экрана
-                gazeX = Math.max(0, Math.min(window.innerWidth, gazeX));
-                gazeY = Math.max(0, Math.min(window.innerHeight, gazeY));
-                
-                // Перемещаем черную точку
-                eyeDot.style.left = gazeX + 'px';
-                eyeDot.style.top = gazeY + 'px';
-            });
-        }
-
-        // Обработка изменения размера окна
-        window.addEventListener('resize', function() {
-            if (isCalibrated) {
-                // Пересчитываем позиции при изменении размера окна
-                webgazer.clearData();
-                // Можно добавить повторную калибровку при необходимости
-            }
+        
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            smoothX = window.innerWidth / 2;
+            smoothY = window.innerHeight / 2;
         });
-
-        // Остановка отслеживания при закрытии страницы
-        window.addEventListener('beforeunload', function() {
-            if (webgazer.isReady()) {
-                webgazer.end();
-            }
+        
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', () => {
+            webgazer.end();
         });
     </script>
 </body>
